@@ -1,0 +1,104 @@
+- hosts: all
+  become: yes
+  vars_files:
+    - ./vault/hge-home.yml
+  vars:
+    ansible_user: au
+  tasks:
+    - name: Install WireGuard repo
+      get_url:
+        url: https://copr.fedorainfracloud.org/coprs/jdoss/wireguard/repo/epel-7/jdoss-wireguard-epel-7.repo
+        dest: /etc/yum.repos.d/wireguard.repo
+    - name: Install WireGuard
+      yum:
+        pkg:
+          - wireguard-dkms
+          - wireguard-tools
+        state: present
+    - name: Load kernel module
+      modprobe:
+        name: wireguard
+        state: present
+    - name: Create configuration directory
+      file:
+        path: /etc/wireguard
+        state: directory
+        mode: '0700'
+    - name: Check for private key
+      stat:
+        path: /etc/wireguard/privatekey
+      register: wgprivatekeyexists
+    - name: Create private key
+      shell: 'umask 077 && wg genkey > /etc/wireguard/privatekey'
+      when: not wgprivatekeyexists.stat.exists
+      register: wgnewprivatekey
+    - name: Secure private key
+      file:
+        path: /etc/wireguard/privatekey
+        mode: '0600'
+    - name: Check for public key
+      stat:
+        path: /etc/wireguard/publickey
+      register: wgpublickeyexists
+    - name: Create public key
+      shell: 'umask 077 && cat /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey'
+      when: not wgpublickeyexists.stat.exists or wgnewprivatekey.changed
+    - name: Secure public key
+      file:
+        path: /etc/wireguard/publickey
+        mode: '0600'
+    - name: Stop WireGuard
+      service:
+        name: wg-quick@wg0
+        state: stopped
+    - name: Get private key
+      shell: 'cat /etc/wireguard/privatekey'
+      register: wgprivatekey
+    - name: Creating configuration file
+      template:
+        src: ./templates/wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: '0600'
+    - name: Enable ipv4 forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+    - name: Enable and start WireGuard
+      service:
+        name: wg-quick@wg0
+        enabled: yes
+        state: started
+    - name: Creating peers
+      shell: 'wg set wg0 peer {{ item.value.publickey }} allowed-ips {{ item.value.address }}'
+      with_dict: "{{ wgpeers }}"
+    - name: Get ListenPort
+      shell: "cat /etc/wireguard/wg0.conf | grep -e '^ListenPort = ' | awk '{ print $3 }'"
+      register: wglistenport
+    - name: Ensure firewalld zone for interface
+      firewalld:
+        zone: public
+        interface: "{{ ansible_default_ipv4.interface }}"
+        permanent: yes
+        immediate: yes
+        state: enabled
+    - name: Enable masquerade for firewalld zone
+      firewalld:
+        zone: public
+        masquerade: yes
+        permanent: yes
+        immediate: yes
+        state: enabled
+    - name: Allow WireGuard TCP ListenPort in firewalld
+      firewalld:
+        port: "{{ wglistenport.stdout }}/tcp"
+        permanent: yes
+        immediate: yes
+        state: enabled
+        zone: public
+    - name: Allow WireGuard UDP ListenPort in firewalld
+      firewalld:
+        port: "{{ wglistenport.stdout }}/udp"
+        permanent: yes
+        immediate: yes
+        state: enabled
+        zone: public
