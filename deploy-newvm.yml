@@ -1,0 +1,71 @@
+- hosts: all
+  become: yes
+  vars_files:
+    - ./vault/example.yml
+  vars:
+    ansible_user: ansibleu
+  tasks:
+    - name: Create image store
+      file:
+        state: directory
+        path: "{{ hostvars[inventory_hostname].isostorage }}"
+    - name: Get image URL
+      set_fact:
+        diskimageurl: "{{ hostvars['vars']['images'][hostvars[inventory_hostname]['vms'][vmname]['type']] }}"
+    - name: Get image name
+      set_fact:
+        diskimagename: "{{ diskimageurl | basename }}"
+    - name: Get image file extension
+      set_fact:
+        diskimageext: "{{ diskimagename.split('.')[-1] | lower }}"
+    - name: Get image destination
+      set_fact:
+        diskimagedest: "{{ hostvars[inventory_hostname]['isostorage'] }}/{{ diskimagename }}"
+    - name: Check for existing image
+      stat:
+        path: "{{ diskimagedest }}"
+      register: diskimagefile
+    - name: Download cloud image
+      get_url:
+        url: "{{ diskimageurl }}"
+        dest: "{{ hostvars[inventory_hostname].isostorage }}"
+      when: not diskimagefile.stat.exists
+    - name: Get VM disk image destination
+      set_fact:
+        vmdiskimagedest: "{{ hostvars[inventory_hostname].vmstorage }}/{{ vmname }}-0.{{ diskimageext }}"
+    - name: Check for existing VM disk image
+      stat:
+        path: "{{ vmdiskimagedest }}"
+      register: existingvmdisk
+      failed_when: existingvmdisk.stat.exists
+    - name: Create VM disk image
+      copy:
+        remote_src: yes
+        src: "{{ diskimagedest }}"
+        dest: "{{ vmdiskimagedest }}"
+    - name: Resizing VM disk image
+      shell: "qemu-img resize {{ vmdiskimagedest }} {{ hostvars[inventory_hostname]['vms'][vmname]['size'] }}"
+    - name: Create cloud-init user configuration file
+      template:
+        src: ./templates/cloud-init-config.yml.j2
+        dest: "{{ hostvars[inventory_hostname]['isostorage'] }}/user-data"
+        mode: '0600'
+    - name: Create cloud-init network configuration file
+      template:
+        src: ./templates/network-init-config.yml.j2
+        dest: "{{ hostvars[inventory_hostname]['isostorage'] }}/meta-data"
+        mode: '0600'
+    - name: Create cloud-init ISO
+      shell: "genisoimage -output {{ hostvars[inventory_hostname]['isostorage'] }}/{{ vmname }}_cloud-init.iso -volid cidata -joliet -rock {{ hostvars[inventory_hostname]['isostorage'] }}/meta-data {{ hostvars[inventory_hostname]['isostorage'] }}/user-data"
+    - name: Create virtual machine
+      shell: >
+        virt-install --memory "{{ hostvars[inventory_hostname]['vms'][vmname]['mem'] }}"
+        --vcpus "{{ hostvars[inventory_hostname]['vms'][vmname]['cpu'] }}"
+        --name "{{ vmname }}"
+        --disk "{{ vmdiskimagedest }}",device=disk
+        --disk "{{ hostvars[inventory_hostname]['isostorage'] }}"/{{ vmname }}_cloud-init.iso,device=cdrom
+        --os-type Linux --os-variant centos7.0
+        --virt-type kvm
+        --graphics none
+        --network bridge=br0
+        --import --noautoconsole

@@ -1,0 +1,47 @@
+- hosts: all
+  become: yes
+  vars_files:
+    - ./vault/example.yml
+  vars:
+    ansible_user: ansibleu
+  tasks:
+    - name: Install KVM and management packages
+      yum:
+        pkg:
+          - qemu-kvm
+          - libvirt
+          - NetworkManager-glib
+          - virt-install
+          - libguestfs-tools
+          - libvirt-python
+          - cloud-utils
+        state: present
+    - name: Verify KVM kernel module
+      modprobe:
+        name: kvm
+        state: present
+    - name: Start libvirtd
+      service:
+        name: libvirtd
+        enabled: yes
+        state: started
+    - name: Check for bridge interface
+      shell: "nmcli connection show | grep '^br0 '"
+      register: nmcheckbridge
+      ignore_errors: yes
+    - name: Create bridge interface
+      shell: "nmcli connection add type bridge autoconnect yes con-name br0 ifname br0"
+      when: nmcheckbridge.failed
+    # - name: Get network size
+    #   set_fact:
+    #     network_note: "{{ ansible_default_ipv4.address }}/{{ ansible_default_ipv4.netmask }}"
+    # - name: Configure bridge interface (1)
+    #   shell: "nmcli connection modify br0 ipv4.addresses {{ ansible_default_ipv4.address }}/{{ network_note | ipaddr('prefix') }} ipv4.method manual"
+    # - name: Configure bridge interface (2)
+    #   shell: "nmcli connection modify br0 ipv4.gateway {{ ansible_default_ipv4.gateway }}"
+    # - name: Configure bridge interface (3)
+    #   shell: "nmcli connection modify br0 ipv4.dns {{ ansible_dns.nameservers[0] }}"
+    # - name: Delete original interface specification
+    #   shell: "nmcli connection delete {{ ansible_default_ipv4.interface }}"
+    # - name: Add original interface to new bridge
+    #   shell: "nmcli connection add type bridge-slave autoconnect yes con-name {{ ansible_default_ipv4.interface }} ifname {{ ansible_default_ipv4.interface }} master br0"

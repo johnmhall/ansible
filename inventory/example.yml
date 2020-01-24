@@ -1,0 +1,26 @@
+all:
+  hosts:
+    vs1:
+      gw: 192.168.1.1               # gateway that our VMs should use
+      dns: 192.168.1.1              # DNS that our VMs should use
+      domain: 'mylan.int'           # DNS suffix for our VMs (hostname is name+'.'+domain)
+      net_prefix: '/24'             # size of our network
+      isostorage: '/data/storage'   # where do we want to store our ISOs and other temporary files?
+      vmstorage: '/data/vms1'       # where do we want to store our VM disk images?
+      vms:
+        guest1:
+          type: 'centos7-generic'   # image defined in vars>images below
+          ip: '192.168.1.100'       # static address
+          cpu: '4'                  # number of virtual CPUs to allocate
+          mem: '16384'              # memory defined in MB (to conform to virt-install)
+          size: '100G'              # primary disk defined in GB (with G to conform to qemu-img)
+        guest2:
+          type: 'centos7-generic'
+          ip: '192.168.1.101'
+          cpu: '4'
+          mem: '1024'
+          size: '150G'
+    hgevs02:
+    vars:
+      images:
+        centos7-generic: 'https://cloud.centos.org/centos/7/images/CentOS-7-x86_64-GenericCloud-1907.qcow2'
