@@ -2,7 +2,4 @@ instance-id: {{ vmname }}
 local-hostname: {{ vmname }}.{{ hostvars[inventory_hostname]['domain'] }}
 network-interfaces: |
   auto eth0
-  iface eth0 inet static
-    address {{ hostvars[inventory_hostname]['vms'][vmname]['ip'] }}{{ hostvars[inventory_hostname]['net_prefix'] }}
-    gateway {{ hostvars[inventory_hostname]['gw'] }}
-    dns-nameservers {{ hostvars[inventory_hostname]['dns'] }}
+  iface eth0 inet dhcp

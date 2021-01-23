@@ -1,0 +1,120 @@
+- name: Deploy Default Template Setup
+  hosts: all
+  become: yes
+  vars_files:
+    - ../private/vault.yml
+  vars:
+    ansible_user: "{{ ansible_user }}"
+  tasks:
+    - name: Configure UTC Timezone
+      file:
+        src: /usr/share/zoneinfo/UTC
+        dest: /etc/localtime
+        owner: root
+        group: root
+        state: link
+      register: timezone
+    - name: Update the OS Package Listings
+      apt: update_cache=yes force_apt_get=yes
+    - name: Update the OS Packages
+      apt: upgrade=dist force_apt_get=yes
+    - name: Check if reboot needed
+      register: updated
+      stat: path=/var/run/reboot-required get_md5=no
+    - name: Reboot the OS
+      reboot:
+      when: updated.changed or timezone.changed
+    - name: Update swappinness value
+      sysctl:
+        name: vm.swappiness
+        value: '10'
+        state: present
+    - name: Install base set of packages
+      apt:
+        name:
+          - wget
+          - screen
+          - tcpdump
+          - virt-what
+          - zip
+          - ntp
+          - htop
+          - sudo
+        state: present
+    - name: Check for virtualization
+      shell: virt-what
+      register: virtualization
+    - name: Install QEMU Guest Agent
+      package:
+        name:
+          - qemu-guest-agent
+        state: present
+      when: virtualization.stdout=='kvm'
+    - name: Enable QEMU Guest Agent
+      service:
+        name: qemu-guest-agent
+        enabled: yes
+        state: started
+      when: virtualization.stdout=='kvm'
+    - name: Disable all existing NTP servers
+      replace:
+        path: /etc/ntp.conf
+        regexp: '(?:^server (?!pool.ntp.org).*)'
+        backup: yes
+    - name: Configure NTP server
+      lineinfile:
+        path: /etc/ntp.conf
+        regexp: '^server pool.ntp.org'
+        line: 'server pool.ntp.org'
+        backup: yes
+      register: ntpconfigupdated
+    - name: Enable ntpd
+      service:
+        name: ntp
+        enabled: yes
+    - name: Stop ntpd
+      service:
+        name: ntp
+        state: stopped
+    - name: Check time delta
+      shell: "ntpdate -q pool.ntp.org | grep -Eo 'offset .* sec' | awk '{ print $2 }'"
+      register: timedelta
+    - name: Force time synchronization
+      command:
+        cmd: 'ntpdate -s pool.ntp.org'
+      when: timedelta.stdout|float > 2.0
+    - name: Start ntpd
+      service:
+        name: ntp
+        state: restarted
+    - name: Setup administrative users
+      block:
+        - name: Add wheel group
+          group:
+            name: wheel
+            state: present
+        - name: Add 'au' user to wheel group
+          user:
+            name: 'au'
+            groups: wheel
+        - name: Add management users
+          user:
+            name: "{{ item.key }}"
+            uid: "{{ item.value.uid }}"
+            comment: "{{ item.value.comment }}"
+            groups: wheel
+            shell: /usr/bin/bash
+          with_dict: "{{ management_users }}"
+        - name: Add management SSH keys
+          authorized_key:
+            user: "{{ item.key }}"
+            state: present
+            key: "{{ lookup('file', '../private/{{ item.key }}_key.pub') }}"
+          with_dict: "{{ management_users }}"
+        - name: Add management sudoers
+          lineinfile:
+            path: "/etc/sudoers.d/{{ item.key }}"
+            create: yes
+            regexp: "^{{ item.key }}"
+            line: "{{ item.key }}        ALL=(ALL)       NOPASSWD: ALL"
+          with_dict: "{{ management_users }}"

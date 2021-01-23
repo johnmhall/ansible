@@ -1,0 +1,31 @@
+- name: Deploy New Host for Ansible
+  hosts: all
+  gather_facts: no
+  become: yes
+  vars_files:
+    - ../private/vault.yml
+  vars:
+    ansible_ssh_user: "{{ default_ssh_user }}"
+    ansible_ssh_pass: "{{ default_ssh_password }}"
+    ansible_become_method: "su"
+    ansible_become_pass: "{{ default_debian_root_password }}"
+    ansible_ssh_extra_args: '-o StrictHostKeyChecking=no -o PubkeyAuthentication=no'
+  tasks:
+    - name: Create Ansible User
+      block:
+        - name: Add "{{ ansible_user }}" user
+          user:
+            name: "{{ ansible_user }}"
+            uid: "{{ ansible_user_uid }}"
+            comment: Ansible
+        - name: Add SSH key for "{{ ansible_user }}"
+          authorized_key:
+            user: "{{ ansible_user }}"
+            state: present
+            key: "{{ lookup('file', '../private/{{ ansible_user }}_key.pub') }}"
+        - name: Add "{{ ansible_user }}" to sudoers
+          lineinfile:
+            path: "/etc/sudoers.d/{{ ansible_user }}"
+            create: yes
+            regexp: "^{{ ansible_user }}"
+            line: "{{ ansible_user }}        ALL=(ALL)       NOPASSWD: ALL"

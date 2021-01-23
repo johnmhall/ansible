@@ -1,9 +1,10 @@
-- hosts: all
+- name: Deploy KVM Host
+  hosts: all
   become: yes
   vars_files:
-    - ./vault/example.yml
+    - ../private/vault.yml
   vars:
-    ansible_user: ansibleu
+    ansible_user: "{{ ansible_user }}"
   tasks:
     - name: Install KVM and management packages
       yum:
@@ -15,33 +16,59 @@
           - libguestfs-tools
           - libvirt-python
           - cloud-utils
+          - bridge-utils
         state: present
     - name: Verify KVM kernel module
       modprobe:
         name: kvm
         state: present
+    - name: Modify libvirtd configuration
+      block:
+        - name: Modify startup delay
+          lineinfile:
+            path: /etc/sysconfig/libvirt-guests
+            regexp: '^START_DELAY='
+            line: 'START_DELAY=60'
+        - name: Modify on-boot behavior
+          lineinfile:
+            path: /etc/sysconfig/libvirt-guests
+            regexp: '^ON_BOOT='
+            line: 'ON_BOOT=ignore'
     - name: Start libvirtd
       service:
         name: libvirtd
         enabled: yes
         state: started
-    - name: Check for bridge interface
-      shell: "nmcli connection show | grep '^br0 '"
-      register: nmcheckbridge
+    # We go to all this trouble with shell commands because the nmcli module does _very strange_ things when we ask for the bridge.
+    - name: Check for existing bridge
+      shell: "nmcli connection | grep '^bridge-br0 '"
+      register: existingbridge
       ignore_errors: yes
-    - name: Create bridge interface
-      shell: "nmcli connection add type bridge autoconnect yes con-name br0 ifname br0"
-      when: nmcheckbridge.failed
-    # - name: Get network size
-    #   set_fact:
-    #     network_note: "{{ ansible_default_ipv4.address }}/{{ ansible_default_ipv4.netmask }}"
-    # - name: Configure bridge interface (1)
-    #   shell: "nmcli connection modify br0 ipv4.addresses {{ ansible_default_ipv4.address }}/{{ network_note | ipaddr('prefix') }} ipv4.method manual"
-    # - name: Configure bridge interface (2)
-    #   shell: "nmcli connection modify br0 ipv4.gateway {{ ansible_default_ipv4.gateway }}"
-    # - name: Configure bridge interface (3)
-    #   shell: "nmcli connection modify br0 ipv4.dns {{ ansible_dns.nameservers[0] }}"
-    # - name: Delete original interface specification
-    #   shell: "nmcli connection delete {{ ansible_default_ipv4.interface }}"
-    # - name: Add original interface to new bridge
-    #   shell: "nmcli connection add type bridge-slave autoconnect yes con-name {{ ansible_default_ipv4.interface }} ifname {{ ansible_default_ipv4.interface }} master br0"
+    - name: Create br0 Profile
+      shell: "nmcli connection add type bridge ifname br0 autoconnect yes"
+      when: existingbridge.failed
+    - name: Get existing connection UUID
+      shell: "nmcli connection | grep '^{{ ansible_default_ipv4.interface }} ' | awk '{ print $2 }'"
+      when: existingbridge.failed
+      register: existinguuid
+    - name: Create bridge-slave connection
+      shell: "nmcli connection add type bridge-slave autoconnect yes con-name {{ ansible_default_ipv4.interface }} ifname {{ ansible_default_ipv4.interface }} master bridge-br0"
+      when: existingbridge.failed
+    # This _still_ doesn't work properly and fails to create the correct network configuration.
+    - name: Remove existing connection
+      shell: "sleep 1 && nmcli connection delete {{ existinguuid.stdout }} && sleep 2"
+      async: 1
+      poll: 0
+      when: existingbridge.failed
+    - name: Reset our SSH connection for Ansible
+      meta: reset_connection
+    # It's very bad form to assume port 22 here but this requires additional logic I haven't written yet
+    - name: Wait for the connection to recover
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: "22"
+        delay: 5
+        active_connection_states: ["ESTABLISHED"]
+      delegate_to: localhost
+      become: no
+      when: existingbridge.failed

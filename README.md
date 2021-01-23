@@ -1,5 +1,5 @@
 # ansible
-The purpose of this repository is to provide any of my published Ansible playbooks for reference. I've provided an explanation of each of them below. Please contact me with any questions.
+The purpose of this repository is to provide any of my published Ansible playbooks for reference. I've provided an explanation of each of them below. Please contact me with any questions. As I've just started converting my lab environments over to Debian 10, I've been adding new playbooks with -debian.yml as the extension that are still WIP.
 
 ## deploy-wireguard.yml
 This is the playbook that I currently use to deploy WireGuard in my own environment. This playbook is intended to be used on CentOS 7 minimal and is still a work in progress although it works properly as provided.
@@ -38,3 +38,9 @@ This is a playbook that I use to deploy CentOS 7 VMs on the system prepared with
 2) Define the desired CentOS 7 image in the all>vars>images section as shown. This should be a link to the CentOS 7 Cloud Image at the appropriate level.
 3) Define the properties of your VM underneath the host where it should be used. The examples guest1 and guest2 show how to properly define the VM and the associated attributes.
 4) Execute the Playbook against the VM host to allocate the VM.
+
+## deploy-new-host.yml
+This is a playbook that I use to configure the Ansible user's permissions on a newly deployed system. This is only for use with newly-deployed bare-metal systems because I don't bother to maintain system images for these and just use the OS-provided installer. I do set the same default password for them initially and then go back and disable the ability to auth with password later.
+
+## deploy-template.yml
+This is a playbook used to deploy and configure my default template for a CentOS 7 system. This configures all of the typical settings that I would expect for a distributed system along with a set of useful tools used for troubleshooting in production environments.

@@ -1,0 +1,67 @@
+- name: Deploy KVM Host
+  hosts: all
+  become: yes
+  vars_files:
+    - ../private/vault.yml
+  vars:
+    ansible_user: "{{ ansible_user }}"
+  tasks:
+    - name: Install KVM and management packages
+      package:
+        name:
+          - qemu-kvm
+          - libvirt-daemon
+          - libvirt-daemon-system
+          - virtinst
+          - libguestfs-tools
+          - cloud-utils
+          - bridge-utils
+        state: present
+    - name: Verify KVM kernel module
+      modprobe:
+        name: kvm
+        state: present
+    - name: Start libvirtd
+      service:
+        name: libvirtd
+        enabled: yes
+        state: started
+    - name: Configure Bridge Network
+      block:
+      # This block still doesn't work properly. It needs work to become idempotent.
+        - name: Get original interface name
+          shell: "grep '^allow-hotplug ' /etc/network/interfaces | awk ' { print $2 } '"
+          register: originalinterface
+        - name: Add Bridge Mode
+          lineinfile:
+            path: /etc/network/interfaces
+            regexp: '^auto br0'
+            line: 'auto br0'
+          register: bridgeauto
+        - name: Set Bridge Configuration Mode
+          lineinfile:
+            path: /etc/network/interfaces
+            regexp: '^iface br0 inet'
+            line: 'iface br0 inet dhcp'
+          register: bridgedhcp
+        - name: Set Bridge Port Members
+          lineinfile:
+            path: /etc/network/interfaces
+            regexp: '^bridge_ports {{ originalinterface.stdout }}'
+            line: "bridge_ports {{ originalinterface.stdout }}"
+          register: bridgeports
+        - name: Set Bridge STP Mode
+          lineinfile:
+            path: /etc/network/interfaces
+            regexp: '^bridge_stp '
+            line: "bridge_stp off"
+          register: bridgestp
+        - name: Change Mode for Existing Interface
+          lineinfile:
+            path: /etc/network/interfaces
+            regexp: "^iface {{ originalinterface.stdout }} inet"
+            line: "iface {{ originalinterface.stdout }} inet manual"
+          register: originalinterface
+    - name: Reboot OS
+      reboot:
+      when: bridgeauto.changed or bridgedhcp.changed or bridgeports.changed or bridgestp.changed or originalinterface.changed

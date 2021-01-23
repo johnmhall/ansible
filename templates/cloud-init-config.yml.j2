@@ -6,7 +6,7 @@ users:
     shell: /bin/bash
     sudo: ['ALL=(ALL) NOPASSWD:ALL']
     ssh-authorized-keys:
-      - {{ ansible_pubkey }}
+      - "{{ lookup('file', '../private/{{ ansible_user }}_key.pub') }}"
   - name: root
     lock_passwd: false
-    password: [update this with your hash]
+    password: {{ root_password }}

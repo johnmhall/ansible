@@ -1,5 +1,5 @@
 [Interface]
 PrivateKey = {{ wgprivatekey.stdout }}
-Address = 192.168.49.1/24
+Address = {{ hostvars['vars']['wireguard']['hosts'][inventory_hostname]['address'] }}
 SaveConfig = true
-ListenPort = 21194
+ListenPort = {{ hostvars['vars']['wireguard']['hosts'][inventory_hostname]['listenport'] }}
